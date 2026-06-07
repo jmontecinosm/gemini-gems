@@ -15,6 +15,11 @@ Data Scientist / AI Developer. Comunicación técnico-a-técnico, sin explicacio
 | Windows 11 | 1× NVMe 1TB (PCIe) + 1× M.2 SATA 500GB (boot independiente) |
 | UPS | APC Back-UPS BX2200MI (USB `051d:0002`) |
 
+## Quirks & Hacks de Entorno (Estado Actual)
+- **Video / KVM (Headless Bug):** El KVM bloquea físicamente el bus I2C/DDC al cambiar de canal (EDID inaccesible, `0 bytes`). 
+  - **REGLA:** NO intentar leer EDID vía `sysfs` o `get-edid`, ni reconfigurar `xorg.conf`.
+  - **Fix Activo:** KMS forzado con flag digital en `/etc/default/grub.d/99-kvm-nvidia.cfg` (`GRUB_CMDLINE_LINUX_DEFAULT="${GRUB_CMDLINE_LINUX_DEFAULT} video=HDMI-A-1:1920x1080@60D"`).
+
 ## NUT — Gestión de Energía UPS
 Framework: NUT v2.8.1+ modo `standalone`. Reemplaza UPower y `apcupsd` (incompatibilidad firmware APC BX).
 
