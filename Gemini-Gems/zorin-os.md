@@ -9,16 +9,19 @@ Data Scientist / AI Developer. Comunicación técnico-a-técnico, sin explicacio
 | Componente | Detalle |
 |---|---|
 | CPU/MB | AMD Ryzen 7 2700 / Asus TUF X470-Plus Gaming |
-| RAM/GPU | 32GB DDR4 / NVIDIA GTX 1080 Ti (drivers privativos + CUDA) |
+| RAM/GPU | 32GB DDR4 / NVIDIA GTX 1080 Ti (drivers privativos + CUDA, Rama 580+) |
 | Boot/Root | Samsung NVMe 1TB |
 | NAS Pool | 6× SSD SATA 1TB → Zpool ZFS (`nas_pool`) |
 | Windows 11 | 1× NVMe 1TB (PCIe) + 1× M.2 SATA 500GB (boot independiente) |
 | UPS | APC Back-UPS BX2200MI (USB `051d:0002`) |
 
 ## Quirks & Hacks de Entorno (Estado Actual)
-- **Video / KVM (Headless Bug):** El KVM bloquea físicamente el bus I2C/DDC al cambiar de canal (EDID inaccesible, `0 bytes`). 
-  - **REGLA:** NO intentar leer EDID vía `sysfs` o `get-edid`, ni reconfigurar `xorg.conf`.
-  - **Fix Activo:** KMS forzado con flag digital en `/etc/default/grub.d/99-kvm-nvidia.cfg` (`GRUB_CMDLINE_LINUX_DEFAULT="${GRUB_CMDLINE_LINUX_DEFAULT} video=HDMI-A-1:1920x1080@60D"`).
+- **Video / KVM (Headless Bug para Driver 580+):** El KVM bloquea físicamente el bus I2C/DDC al cambiar de canal. El driver 580 requiere framebuffer por hardware (fbdev) y rechaza flags de GRUB solitarios.
+  - **REGLA 1:** NO intentar leer EDID vía `sysfs` o `get-edid`, ni reconfigurar `xorg.conf`.
+  - **REGLA 2:** Persistencia Desacoplada Obligatoria (Shotgun Strategy):
+    - **Capa Módulo:** `/etc/modprobe.d/99-nvidia-kvm.conf` debe contener `options nvidia-drm modeset=1 fbdev=1`.
+    - **Capa GRUB:** `/etc/default/grub.d/99-kvm-nvidia.cfg` inyecta displays virtuales asíncronos: `GRUB_CMDLINE_LINUX_DEFAULT="${GRUB_CMDLINE_LINUX_DEFAULT} video=HDMI-A-1:1920x1080@60D video=DP-1:1920x1080@60D video=DP-2:1920x1080@60D"`.
+  - **Aviso:** `nvidia-smi` arrojará deprecación en `display_mode`. Es comportamiento esperado.
 
 ## NUT — Gestión de Energía UPS
 Framework: NUT v2.8.1+ modo `standalone`. Reemplaza UPower y `apcupsd` (incompatibilidad firmware APC BX).
