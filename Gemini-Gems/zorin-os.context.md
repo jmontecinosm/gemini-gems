@@ -23,6 +23,17 @@ El KVM bloquea físicamente el bus I2C/DDC al cambiar de canal. La pérdida de E
 ### 2. Estabilidad CPU/VRM (Ryzen C6 vs UPS Sags)
 El kernel restringe el CPU a `processor.max_cstate=5 rcu_nocbs=0-15` para evitar *hardware halt* provocado por micro-caídas de tensión de la UPS cuando el procesador entra en reposo profundo (C6). 
 
+### 3. Pérdida de Video KVM y Bloqueo de Interfaz Gráfica (GDM3)
+
+**Síntoma:** Pérdida de video en el host al cambiar el canal del KVM. La sesión gráfica no respondía al retornar. Acceso SSH funcional. No había procesos de Chromium en spin-loop ahogando la CPU.
+**Diagnóstico:** `ps aux` reveló que `plymouthd` (pantalla de carga de Zorin) estaba reteniendo el *DRM Master* (Framebuffer). Al cortarse la señal I2C/DDC por el KVM durante una transición de video, Plymouth entró en estado "zombie", acumulando tiempo de CPU e impidiendo que `gdm3` tomara el control de la pantalla.
+**Solución Inmediata:** Reiniciar el host (el KMS override inyectado en GRUB/Kernel forzó el levantamiento del video al reiniciar). Una alternativa en caliente habría sido `killall plymouthd && systemctl restart gdm3`.
+**Mitigación Permanente:** Se inyectó un drop-in de systemd para forzar un timeout agresivo sobre Plymouth y evitar futuros bloqueos del DRM node:
+  - Archivo: `/etc/systemd/system/plymouth-quit-wait.service.d/override.conf`
+  - Configuración: `TimeoutSec=30` y `KillMode=control-group`.
+
+
+
 ## NUT — Gestión de Energía UPS
 Framework: NUT v2.8.1+ modo `standalone`. Reemplaza UPower y `apcupsd`. 
 **Filtro Anti-Rebote (Debounce) Activo:** Configurado para ignorar caídas de voltaje <15s por degradación de batería.
