@@ -9,32 +9,25 @@
 | NAS Pool | 6× SSD SATA 1TB → Zpool ZFS (`nas_pool`) |
 | Windows 11 | 1× NVMe 1TB (PCIe) + 1× M.2 SATA 500GB (boot independiente) |
 | UPS | APC Back-UPS BX2200MI (USB `051d:0002` - Batería degradada, genera micro-sags) |
+| Video | Emulador EDID HDMI (Passthrough) intercalado entre GPU y KVM. |
 
 ## Quirks & Hacks de Entorno (Estado Actual)
 
-### 1. Video / KVM (Headless Bug & Chromium Spin-Loop)
-El KVM bloquea físicamente el bus I2C/DDC al cambiar de canal. La pérdida de EDID/Framebuffer causa que procesos Chromium (Brave, VSCode) entren en spin-loop (100% CPU `gpu-process`). 
+### 1. Video / KVM (Headless Bug, DPMS Off & Spin-Loop)
+El KVM corta físicamente el pin HPD (Hot-Plug Detect) y el bus I2C/DDC al cambiar de canal. Esto causaba que procesos Chromium entraran en spin-loop, que Plymouth bloqueara el DRM Master, y que el driver de NVIDIA apagara el puerto (`Disp.A: Off`), matando el servidor Xorg sin posibilidad de recuperación en caliente.
+- **Hardware Fix:** Se instaló un **Emulador EDID HDMI con passthrough** en la salida de la GPU para mantener el pin HPD siempre energizado y engañar al driver.
 - **REGLA 1:** NO intentar leer EDID vía `sysfs` o `get-edid`, ni reconfigurar `xorg.conf`.
-- **REGLA 2 (KMS Override Limpio):**
-  - **Módulo:** `/etc/modprobe.d/99-nvidia-kvm.conf` tiene `options nvidia-drm modeset=1 fbdev=1`.
-  - **GRUB:** Archivo principal limpio. Override en `/etc/default/grub.d/99-kvm-nvidia.cfg` con: `GRUB_CMDLINE_LINUX_DEFAULT="${GRUB_CMDLINE_LINUX_DEFAULT} video=HDMI-A-1:1920x1080@60D processor.max_cstate=5 rcu_nocbs=0-15"`.
-- **Aviso:** `nvidia-smi` arrojará deprecación en `display_mode` (esperado).
+- **REGLA 2 (KMS Override & VRAM Preservation):**
+  - **Módulo KMS (`/etc/modprobe.d/99-nvidia-kvm.conf`):** `options nvidia-drm modeset=1 fbdev=1`
+  - **Módulo Power (`/etc/modprobe.d/99-nvidia-power.conf`):** `options nvidia NVreg_PreserveVideoMemoryAllocations=1`
+  - **Servicios Systemd Activos:** `nvidia-suspend.service`, `nvidia-hibernate.service`, `nvidia-resume.service` (Cruciales para evitar corrupción de VRAM tras bloqueos largos de pantalla).
+  - **GRUB (`/etc/default/grub.d/99-kvm-nvidia.cfg`):** `GRUB_CMDLINE_LINUX_DEFAULT="${GRUB_CMDLINE_LINUX_DEFAULT} video=HDMI-A-1:1920x1080@60D processor.max_cstate=5 rcu_nocbs=0-15"`.
+- **Mitigación Plymouth:** Drop-in en `/etc/systemd/system/plymouth-quit-wait.service.d/override.conf` con `TimeoutSec=30` y `KillMode=control-group` para evitar bloqueos del nodo DRM en el arranque.
 
 ### 2. Estabilidad CPU/VRM (Ryzen C6 vs UPS Sags)
 El kernel restringe el CPU a `processor.max_cstate=5 rcu_nocbs=0-15` para evitar *hardware halt* provocado por micro-caídas de tensión de la UPS cuando el procesador entra en reposo profundo (C6). 
 
-### 3. Pérdida de Video KVM y Bloqueo de Interfaz Gráfica (GDM3)
-
-**Síntoma:** Pérdida de video en el host al cambiar el canal del KVM. La sesión gráfica no respondía al retornar. Acceso SSH funcional. No había procesos de Chromium en spin-loop ahogando la CPU.
-**Diagnóstico:** `ps aux` reveló que `plymouthd` (pantalla de carga de Zorin) estaba reteniendo el *DRM Master* (Framebuffer). Al cortarse la señal I2C/DDC por el KVM durante una transición de video, Plymouth entró en estado "zombie", acumulando tiempo de CPU e impidiendo que `gdm3` tomara el control de la pantalla.
-**Solución Inmediata:** Reiniciar el host (el KMS override inyectado en GRUB/Kernel forzó el levantamiento del video al reiniciar). Una alternativa en caliente habría sido `killall plymouthd && systemctl restart gdm3`.
-**Mitigación Permanente:** Se inyectó un drop-in de systemd para forzar un timeout agresivo sobre Plymouth y evitar futuros bloqueos del DRM node:
-  - Archivo: `/etc/systemd/system/plymouth-quit-wait.service.d/override.conf`
-  - Configuración: `TimeoutSec=30` y `KillMode=control-group`.
-
-
-
-## NUT — Gestión de Energía UPS
+### 3. NUT — Gestión de Energía UPS
 Framework: NUT v2.8.1+ modo `standalone`. Reemplaza UPower y `apcupsd`. 
 **Filtro Anti-Rebote (Debounce) Activo:** Configurado para ignorar caídas de voltaje <15s por degradación de batería.
 
